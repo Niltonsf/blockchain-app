@@ -1,70 +1,111 @@
-import React, { useEffect, useState } from 'react';
-import { ethers } from 'ethers';
-import { contractABI, contractAddress } from '../utils/constants';
+import React, { useEffect, useState } from "react";
+import { ethers } from "ethers";
 
-export const TransactionContext = React.createContext({} as any);
+import { contractABI, contractAddress } from "../utils/constants";
 
-const { ethereum } = window as any;
+export const TransactionContext: any = React.createContext({} as any);
 
-const getEthereumContract = () => {
-	const provider = new ethers.providers.Web3Provider(ethereum);
-	const signer = provider.getSigner();
-	const transactionsContract = new ethers.Contract(contractAddress, contractABI, signer);
+const { ethereum }: any = window;
 
-	return transactionsContract;
-}
+const createEthereumContract = () => {
+  const provider = new ethers.providers.Web3Provider(ethereum);
+  const signer = provider.getSigner();
+  const transactionsContract = new ethers.Contract(contractAddress, contractABI, signer);
 
-export const TransactionProvider = ({ children }: any) => {
-	const [currentAccount, setCurrentAccount] = useState({});
-	const [formData, setFormData] = useState({ addressTo: "", amount: "", keyword: "", message: "" });
-	const [isLoading, setIsLoading] = useState(false);
-	const [transactionCount, setTransactionCount] = useState(localStorage.getItem('transactionCount'));
+  return transactionsContract;
+};
 
-	const handleChange = (e: any, name: any) => {
-		setFormData((previous) => ({
-			...previous,
-			[name]: e.target.value
-		}));
-	}
+export const TransactionsProvider = ({ children }: any) => {
+  const [formData, setformData] = useState({ addressTo: "", amount: "", keyword: "", message: "" });
+  const [currentAccount, setCurrentAccount] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [transactionCount, setTransactionCount] = useState(localStorage.getItem("transactionCount"));
+  const [transactions, setTransactions] = useState([]);
 
-	
-	const checkIfWalletIsConnected = async () => {
-		try {
-			if (!ethereum) return alert("Please install metamask!");
+  const handleChange = (e: any, name: any) => {
+    setformData((prevState) => ({ ...prevState, [name]: e.target.value }));
+  };
 
-			const accounts = await ethereum.request({ method: 'eth_accounts'});
-	
-			if(accounts.length) {
-				setCurrentAccount(accounts[0]);
-	
-				// getAllTransactions();
-			} else {
-				console.log('No accounts found')
-			}			
-		} catch (e) {
-			console.log(e);
-			throw new Error('No Ethereum object.')
-		}
-	}
+  const getAllTransactions = async () => {
+    try {
+      if (ethereum) {
+        const transactionsContract = createEthereumContract();
 
-	const connectWallet = async () => {
-		try {
-			if (!ethereum) return alert("Please install metamask!");
+        const availableTransactions = await transactionsContract.getAllTransactions();
 
-			const accounts = await ethereum.request({ method: 'eth_requestAccounts'});
+        const structuredTransactions = availableTransactions.map((transaction: any) => ({
+          addressTo: transaction.receiver,
+          addressFrom: transaction.sender,
+          timestamp: new Date(transaction.timestamp.toNumber() * 1000).toLocaleString(),
+          message: transaction.message,
+          keyword: transaction.keyword,
+          amount: parseInt(transaction.amount._hex) / (10 ** 18)
+        }));
 
-			setCurrentAccount(accounts[0]);
-		} catch (e) {
-			console.log(e);
-			throw new Error('No Ethereum object.')
-		}
-	}
+        console.log('here', structuredTransactions);
 
-	const sendTransaction = async () => {
+        setTransactions(structuredTransactions);
+      } else {
+        console.log("Ethereum is not present");
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const checkIfWalletIsConnect = async () => {
+    try {
+      if (!ethereum) return alert("Please install MetaMask.");
+
+      const accounts = await ethereum.request({ method: "eth_accounts" });
+
+      if (accounts.length) {
+        setCurrentAccount(accounts[0]);
+
+        getAllTransactions();
+      } else {
+        console.log("No accounts found");
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const checkIfTransactionsExists = async () => {
+    try {
+      if (ethereum) {
+        const transactionsContract = createEthereumContract();
+        const currentTransactionCount = await transactionsContract.getTransactionCount();
+
+        window.localStorage.setItem("transactionCount", currentTransactionCount);
+      }
+    } catch (error) {
+      console.log(error);
+
+      throw new Error("No ethereum object");
+    }
+  };
+
+  const connectWallet = async () => {
+    try {
+      if (!ethereum) return alert("Please install MetaMask.");
+
+      const accounts = await ethereum.request({ method: "eth_requestAccounts", });
+
+      setCurrentAccount(accounts[0]);
+      window.location.reload();
+    } catch (error) {
+      console.log(error);
+
+      throw new Error("No ethereum object");
+    }
+  };
+
+  const sendTransaction = async () => {
     try {
       if (ethereum) {
         const { addressTo, amount, keyword, message } = formData;
-        const transactionsContract = getEthereumContract();
+        const transactionsContract = createEthereumContract();
         const parsedAmount = ethers.utils.parseEther(amount);
 
         await ethereum.request({
@@ -99,13 +140,25 @@ export const TransactionProvider = ({ children }: any) => {
     }
   };
 
-	useEffect(() => {
-		checkIfWalletIsConnected();
-	}, []);
+  useEffect(() => {
+    checkIfWalletIsConnect();
+    checkIfTransactionsExists();
+  }, [transactionCount]);
 
-	return (
-		<TransactionContext.Provider value={{ connectWallet, currentAccount, formData, setFormData, handleChange, sendTransaction }}>
-			{children}
-		</TransactionContext.Provider>
-	)
-}
+  return (
+    <TransactionContext.Provider
+      value={{
+        transactionCount,
+        connectWallet,
+        transactions,
+        currentAccount,
+        isLoading,
+        sendTransaction,
+        handleChange,
+        formData,
+      }}
+    >
+      {children}
+    </TransactionContext.Provider>
+  );
+};
